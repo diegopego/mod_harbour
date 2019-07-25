@@ -1,10 +1,11 @@
 #include "hbclass.ch"
+#include "hbhrb.ch"
 
 #xcommand ? <cText> => AP_RPuts( <cText> )
 
 #define CRLF hb_OsNewLine()
 
-extern AP_METHOD, AP_ARGS, AP_USERIP, PTRTOSTR, AP_RPUTS
+extern AP_METHOD, AP_ARGS, AP_USERIP, PTRTOSTR, PTRTOUI, AP_RPUTS
 extern AP_HEADERSINCOUNT, AP_HEADERSINKEY, AP_HEADERSINVAL
 extern AP_POSTPAIRSCOUNT, AP_POSTPAIRSKEY, AP_POSTPAIRSVAL, AP_POSTPAIRS
 extern AP_HEADERSOUTCOUNT, AP_HEADERSOUTSET, AP_HEADERSIN, AP_SETCONTENTTYPE
@@ -15,7 +16,7 @@ static hPP
 
 //----------------------------------------------------------------//
 
-function _AppMain()
+function Main()
 
    local cFileName
 
@@ -54,10 +55,12 @@ function AddPPRules()
    __pp_addRule( hPP, "#xcommand ? [<explist,...>] => AP_RPuts( '<br>' [,<explist>] )" )
    __pp_addRule( hPP, "#xcommand ?? [<explist,...>] => AP_RPuts( [<explist>] )" )
    __pp_addRule( hPP, "#define CRLF hb_OsNewLine()" )
+   __pp_addRule( hPP, "#xcommand TEXT <into:TO,INTO> <v> => #pragma __cstream|<v>:=%s" )
+   __pp_addRule( hPP, "#xcommand TEXT <into:TO,INTO> <v> ADDITIVE => #pragma __cstream|<v>+=%s" )
    __pp_addRule( hPP, "#xcommand TEMPLATE [ USING <x> ] [ PARAMS [<v1>] [,<vn>] ] => " + ;
                       '#pragma __cstream | AP_RPuts( InlinePrg( %s, [@<x>] [,<(v1)>][+","+<(vn)>] [, @<v1>][, @<vn>] ) )' )
-   __pp_addRule( hPP, "#xcommand BLOCKS => " + ;
-                      '#pragma __cstream | AP_RPuts( ReplaceBlocks( %s, "{{", "}}" ) )' )
+   __pp_addRule( hPP, "#xcommand BLOCKS [ PARAMS [<v1>] [,<vn>] ] => " + ;
+                      '#pragma __cstream | AP_RPuts( ReplaceBlocks( %s, "{{", "}}" [,<(v1)>][+","+<(vn)>] [, @<v1>][, @<vn>] ) )' )   
    __pp_addRule( hPP, "#command ENDTEMPLATE => #pragma __endtext" )
 
 return nil
@@ -78,7 +81,7 @@ function Execute( cCode, ... )
    oHrb = HB_CompileFromBuf( cCode, .T., "-n", "-I" + cHBheaders1, "-I" + cHBheaders2,;
                              "-I" + hb_GetEnv( "HB_INCLUDE" ), hb_GetEnv( "HB_USER_PRGFLAGS" ) )
    if ! Empty( oHrb )
-      uRet = hb_HrbDo( hb_HrbLoad( oHrb ), ... )
+      uRet = hb_HrbDo( hb_HrbLoad( HB_HRB_BIND_LOCAL, oHrb ), ... )
    endif
 
 return uRet
@@ -114,6 +117,27 @@ static procedure DoBreak( oError )
    ? GetErrorInfo( oError )
 
    BREAK
+
+//----------------------------------------------------------------//
+
+function LoadHRB( cHrbFile_or_oHRB )
+
+   local lResult := .F.
+
+   if ValType( cHrbFile_or_oHRB ) == "C"
+      if File( hb_GetEnv( "PRGPATH" ) + "/" + cHrbFile_or_oHRB )
+         AAdd( M->getList,;
+            hb_HrbLoad( 1, hb_GetEnv( "PRGPATH" ) + "/" + cHrbFile_or_oHRB ) )
+         lResult = .T.   
+      endif      
+   endif
+   
+   if ValType( cHrbFile_or_oHRB ) == "P"
+      AAdd( M->getList, hb_HrbLoad( 1, cHrbFile_or_oHRB ) )
+      lResult = .T.
+   endif
+   
+return lResult   
 
 //----------------------------------------------------------------//
 
@@ -210,34 +234,37 @@ ENDCLASS
 
 function AP_PostPairs()
 
-   local aPairs := hb_aTokens( AP_Body(), "&" )
-   local cPair, hPairs := {=>}
+   local cPair, uPair, hPairs := {=>}
 
-   for each cPair in aPairs
-      hb_HSet( hPairs, SubStr( cPair, 1, At( "=", cPair ) - 1 ), SubStr( cPair, At( "=", cPair ) + 1 ) )
-   next
+   for each cPair in hb_ATokens( AP_Body(), "&" )
+      if ( uPair := At( "=", cPair ) ) > 0
+            hb_HSet( hPairs, Left( cPair, uPair - 1 ), SubStr( cPair, uPair + 1 ) )
+      endif
+    next
 
 return hPairs
 
 //----------------------------------------------------------------//
 
-function ReplaceBlocks( cCode, cStartBlock, cEndBlock )
+function ReplaceBlocks( cCode, cStartBlock, cEndBlock, cParams, ... )
 
    local nStart, nEnd, cBlock
    local lReplaced := .F.
    
    hb_default( @cStartBlock, "{{" )
    hb_default( @cEndBlock, "}}" )
+   hb_default( @cParams, "" )
 
    while ( nStart := At( cStartBlock, cCode ) ) != 0 .and. ;
          ( nEnd := At( cEndBlock, cCode ) ) != 0
       cBlock = SubStr( cCode, nStart + Len( cStartBlock ), nEnd - nStart - Len( cEndBlock ) )
-      cCode = SubStr( cCode, 1, nStart - 1 ) + ValToChar( &( cBlock ) ) + ;
+      cCode = SubStr( cCode, 1, nStart - 1 ) + ;
+              ValToChar( Eval( &( "{ |" + cParams + "| " + cBlock + " }" ), ... ) ) + ;
       SubStr( cCode, nEnd + Len( cEndBlock ) )
-		lReplaced := .T.
+          lReplaced = .T.
    end
    
-return lReplaced
+return If( HB_PIsByRef( 1 ), lReplaced, cCode )
 
 //----------------------------------------------------------------//
 
@@ -466,6 +493,13 @@ HB_FUNC( PTRTOSTR )
    const char * * pStrs = ( const char * * ) hb_parnll( 1 );   
    
    hb_retc( * ( pStrs + hb_parnl( 2 ) ) );
+}
+
+HB_FUNC( PTRTOUI )
+{
+   unsigned int * pNums = ( unsigned int * ) hb_parnll( 1 );   
+   
+   hb_retnl( * ( pNums + hb_parnl( 2 ) ) );
 }
 
 HB_FUNC( AP_HEADERSIN )

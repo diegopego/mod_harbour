@@ -1,3 +1,47 @@
+**1.** sudo apachectl start
+
+**2.** From the browser go to localhost and check that Apache is running
+
+**3.** Go to /Library/WebServer/Documents and create these symlinks:
+
+sudo ln -sf /Users/$USER/mod_harbour/osx/libharbour.3.2.0.dylib libharbour.3.2.0.dylib
+
+sudo ln -sf /Users/$USER/mod_harbour/samples modharbour_samples
+
+**4.** Create this folder:
+
+sudo mkdir -p /usr/local/httpd/modules
+
+**5.** Go to /usr/local/httpd/modules and create this symlink:
+
+sudo ln -sf /Users/$USER/mod_harbour/osx/mod_harbour.so mod_harbour.so
+
+**6.** Edit httpd.conf at /private/etc/apache2 and add these lines:
+
+```
+LoadModule harbour_module /usr/local/httpd/modules/mod_harbour.so
+
+<FilesMatch "\.(prg|hrb)$">
+    SetHandler harbour
+</FilesMatch>
+```
+
+**Add Indexes here:**
+
+Options **Indexes** FollowSymLinks Multiviews
+
+**7.** sudo apachectl restart
+
+**8.** Go to /Users/$USER/mod_harbour and change the owner of the samples folder:
+
+sudo chown -R _www:_www samples
+
+**9.** From your browser go to localhost/modharbour_samples
+
+**10.** If you get a "don't have permission to access" error please review the logs at:
+
+cd /var/log/apache2
+
 **Included by default Apache in OSX is uncomplete, so first this to do is to properly install it:**
 
 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
