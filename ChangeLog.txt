@@ -1,3 +1,51 @@
+2020/April/29
+
+* Cache temporarly removed. We are doing more tests.
+
+* New GitHub actions to automatically build mod_harbour for Linux.
+
+2020/April/27
+
+* New PRGs into HRBs automatic cache implemented. This technique was originally implemented, in the xbase world, by FoxBase+
+and later ported to FoxPro. Now mod_harbour automatically avoid the need to recompile when there are no changes
+in the source code. If there is a change, mod_harbour recompiles and updates the cache.
+
+2020/April/15
+
+* New function AP_HeadersOut() same as there is a AP_HeadersIn(). IIS support also.
+
+2020/April/06
+
+* New: function AP_GetPairs() provides similar functionality as AP_PostPairs(). Parameters must
+  be provided like this example: index.prg?one=first&two=second&three=third. Example: ? AP_GetPairs() 
+
+* Enhanced function AP_RPuts() support for arrays, hashes and objects. In example: ? AP_HeadersIn()
+
+2020/March/10
+
+* mod_harbour for IIS no longer needs to copy any DLLs to a specific place. They are used from
+  the same folder where mod_harbour.dll is placed.
+
+2020/March/04
+
+* Cookies management functions added in libharbour.dll
+  + function SetCookie( cName, cValue, nSecs, cPath, cDomain, lHttps, lOnlyHttp )
+  + function GetCookies() --> hCookies (hash value)
+
+2020/February/18
+
+* New version 2.0
+  + Concurrency support. To test it: 
+    c:\Apache24\bin\ab -n 100 -c 10  http://localhost/modharbour_samples/info.prg
+    
+  + Timeouts control (15 secs max)
+  
+  + MultiThreading support
+
+2019/August/30
+
+* New examples using 3D three.js module. Please review samples/three folder
+
 2019/July/2
 
 * Fix: BLOCKS ... ENDTEXT was not properly working as ReplaceBlocks() was returning a logical value. ReplaceBlocks()

@@ -1,16 +1,44 @@
+/*
+**  apache.prg -- Apache harbour module
+**
+** (c) FiveTech Software SL, 2019-2020
+** Developed by Antonio Linares alinares@fivetechsoft.com
+** MIT license https://github.com/FiveTechSoft/mod_harbour/blob/master/LICENSE
+*/
+
 #include "hbclass.ch"
 #include "hbhrb.ch"
 
-#xcommand ? <cText> => AP_RPuts( <cText> )
+#xcommand ? [<explist,...>] => AP_RPuts( '<br>' [,<explist>] )
 
 #define CRLF hb_OsNewLine()
 
 extern AP_METHOD, AP_ARGS, AP_USERIP, PTRTOSTR, PTRTOUI, AP_RPUTS
 extern AP_HEADERSINCOUNT, AP_HEADERSINKEY, AP_HEADERSINVAL
-extern AP_POSTPAIRSCOUNT, AP_POSTPAIRSKEY, AP_POSTPAIRSVAL, AP_POSTPAIRS
-extern AP_HEADERSOUTCOUNT, AP_HEADERSOUTSET, AP_HEADERSIN, AP_SETCONTENTTYPE
+extern AP_HEADERSOUTCOUNT, AP_HEADERSOUTKEY, AP_HEADERSOUTVAL, AP_HEADERSOUTSET
+extern AP_POSTPAIRS, AP_HEADERSIN, AP_HEADERSOUT, AP_SETCONTENTTYPE
 extern HB_VMPROCESSSYMBOLS, HB_VMEXECUTE, AP_GETENV, AP_BODY, HB_URLDECODE
-extern SHOWCONSOLE
+extern SHOWCONSOLE, HB_VFDIREXISTS 
+
+#define __HBEXTERN__HBHPDF__REQUEST
+#include "../harbour/contrib/hbhpdf/hbhpdf.hbx"
+#define __HBEXTERN__XHB__REQUEST
+#include "../harbour/contrib/xhb/xhb.hbx"
+#define __HBEXTERN__HBCT__REQUEST
+#include "../harbour/contrib/hbct/hbct.hbx"
+#define __HBEXTERN__HBCURL__REQUEST  
+#include "../harbour/contrib/hbcurl/hbcurl.hbx"
+#define __HBEXTERN__HBNETIO__REQUEST
+#include "../harbour/contrib/hbnetio/hbnetio.hbx"
+#define __HBEXTERN__HBMZIP__REQUEST
+#include "../harbour/contrib/hbmzip/hbmzip.hbx"
+#define __HBEXTERN__HBZIPARC__REQUEST
+#include "../harbour/contrib/hbziparc/hbziparc.hbx"
+
+#ifdef HB_WITH_ADS
+   #define __HBEXTERN__RDDADS__REQUEST
+   #include "../harbour/contrib/rddads/rddads.hbx"
+#endif
 
 static hPP
 
@@ -18,7 +46,7 @@ static hPP
 
 function Main()
 
-   local cFileName
+   local cFileName, pThread
 
    ErrorBlock( { | o | DoBreak( o ) } )
 
@@ -26,15 +54,20 @@ function Main()
    AddPPRules()
 
    if File( cFileName )
+      hb_SetEnv( "PRGPATH",;
+                 SubStr( cFileName, 1, RAt( "/", cFileName ) + RAt( "\", cFileName ) - 1 ) )
       if Lower( Right( cFileName, 4 ) ) == ".hrb"
-         hb_HrbDo( hb_HrbLoad( cFileName ), AP_Args() )
+         pThread = hb_threadStart( @ExecuteHrb(), hb_HrbLoad( 1, cFileName ), AP_Args() )
       else
-         hb_SetEnv( "PRGPATH",;
-                    SubStr( cFileName, 1, RAt( "/", cFileName ) + RAt( "\", cFileName ) - 1 ) )
-         Execute( MemoRead( cFileName ), AP_Args() )
+         pThread = hb_threadStart( @Execute(), MemoRead( cFileName ), AP_Args() )
       endif
+      if hb_threadWait( pThread, 15 ) != 1
+         hb_threadQuitRequest( pThread )
+	      ErrorLevel( 408 ) // request timeout
+      endif    
+      InKey( 0.1 )
    else
-      ErrorLevel( 404 )
+      ErrorLevel( 404 ) // not found
    endif   
 
 return nil
@@ -62,8 +95,21 @@ function AddPPRules()
    __pp_addRule( hPP, "#xcommand BLOCKS [ PARAMS [<v1>] [,<vn>] ] => " + ;
                       '#pragma __cstream | AP_RPuts( ReplaceBlocks( %s, "{{", "}}" [,<(v1)>][+","+<(vn)>] [, @<v1>][, @<vn>] ) )' )   
    __pp_addRule( hPP, "#command ENDTEMPLATE => #pragma __endtext" )
-
+   __pp_addRule( hPP, "#xcommand TRY  => BEGIN SEQUENCE WITH {| oErr | Break( oErr ) }" )
+   __pp_addRule( hPP, "#xcommand CATCH [<!oErr!>] => RECOVER [USING <oErr>] <-oErr->" )
+   __pp_addRule( hPP, "#xcommand FINALLY => ALWAYS" )
+   __pp_addRule( hPP, "#xcommand DEFAULT <v1> TO <x1> [, <vn> TO <xn> ] => ;" + ;
+                      "IF <v1> == NIL ; <v1> := <x1> ; END [; IF <vn> == NIL ; <vn> := <xn> ; END ]" )
+		      
 return nil
+
+//----------------------------------------------------------------//
+
+function ExecuteHrb( oHrb, cArgs )
+
+   ErrorBlock( { | oError | AP_RPuts( GetErrorInfo( oError ) ), Break( oError ) } )
+
+return hb_HrbDo( oHrb, cArgs )
 
 //----------------------------------------------------------------//
 
@@ -73,6 +119,8 @@ function Execute( cCode, ... )
    local cHBheaders1 := "~/harbour/include"
    local cHBheaders2 := "c:\harbour\include"
 
+   ErrorBlock( { | oError | AP_RPuts( GetErrorInfo( oError, @cCode ) ), Break( oError ) } )
+
    while lReplaced 
       lReplaced = ReplaceBlocks( @cCode, "{%", "%}" )
       cCode = __pp_process( hPP, cCode )
@@ -81,34 +129,56 @@ function Execute( cCode, ... )
    oHrb = HB_CompileFromBuf( cCode, .T., "-n", "-I" + cHBheaders1, "-I" + cHBheaders2,;
                              "-I" + hb_GetEnv( "HB_INCLUDE" ), hb_GetEnv( "HB_USER_PRGFLAGS" ) )
    if ! Empty( oHrb )
-      uRet = hb_HrbDo( hb_HrbLoad( HB_HRB_BIND_LOCAL, oHrb ), ... )
+      uRet = hb_HrbDo( hb_HrbLoad( 1, oHrb ), ... )
    endif
 
 return uRet
 
 //----------------------------------------------------------------//
 
-function GetErrorInfo( oError )
+function GetErrorInfo( oError, cCode )
 
-   local cInfo := oError:operation, n
-   local cCallStack := ""
+   local n, cInfo := "Error: " + oError:description + "<br>"
+   local aLines, nLine
 
-   if ValType( oError:Args ) == "A"
-      cInfo += "   Args:" + CRLF
-      for n = 1 to Len( oError:Args )
-         cInfo += "[" + Str( n, 4 ) + "] = " + ValType( oError:Args[ n ] ) + ;
-                   "   " + ValToChar( oError:Args[ n ] ) + hb_OsNewLine()
-      next
-   endif
+   if ! Empty( oError:operation )
+      cInfo += "operation: " + oError:operation + "<br>"
+   endif   
+
+   if ! Empty( oError:filename )
+      cInfo += "filename: " + oError:filename + "<br>"
+   endif   
    
-   n = 0
-   while ! Empty( ProcName( n ) )
-      cCallStack += "called from: " + ProcName( n ) + ", line: " + AllTrim( Str( ProcLine( n ) ) ) + "<br>" + CRLF
+   if ValType( oError:Args ) == "A"
+      for n = 1 to Len( oError:Args )
+          cInfo += "[" + Str( n, 4 ) + "] = " + ValType( oError:Args[ n ] ) + ;
+                   "   " + ValToChar( oError:Args[ n ] ) + ;
+                   If( ValType( oError:Args[ n ] ) == "A", " Len: " + ;
+                   AllTrim( Str( Len( oError:Args[ n ] ) ) ), "" ) + "<br>"
+      next
+   endif	
+	
+   n = 2
+   while ! Empty( ProcName( n ) )  
+      cInfo += "called from: " + If( ! Empty( ProcFile( n ) ), ProcFile( n ) + ", ", "" ) + ;
+               ProcName( n ) + ", line: " + ;
+               AllTrim( Str( ProcLine( n ) ) ) + "<br>"
       n++
-   end   
+   end
 
-return "error: " + oError:Description + hb_OsNewLine() + cInfo + "<br><br>" + CRLF + ;
-       cCallStack
+   if ! Empty( cCode )
+      aLines = hb_ATokens( cCode, Chr( 10 ) )
+      cInfo += "<br>Source:<br>" + CRLF
+      n = 1
+      while( nLine := ProcLine( ++n ) ) == 0
+      end   
+      for n = Max( nLine - 2, 1 ) to Min( nLine + 2, Len( aLines ) )
+         cInfo += StrZero( n, 4 ) + If( n == nLine, " =>", ": " ) + ;
+                  hb_HtmlEncode( aLines[ n ] ) + "<br>" + CRLF
+      next
+   endif      
+
+return cInfo
 
 //----------------------------------------------------------------//
 
@@ -141,13 +211,31 @@ return lResult
 
 //----------------------------------------------------------------//
 
+function ObjToChar( o )
+
+   local hObj := {=>}, aDatas := __objGetMsgList( o, .T. )
+   local hPairs := {=>}, aParents := __ClsgetAncestors( o:ClassH )
+
+   AEval( aParents, { | h, n | aParents[ n ] := __ClassName( h ) } ) 
+
+   hObj[ "CLASS" ] = o:ClassName()
+   hObj[ "FROM" ]  = aParents 
+
+   AEval( aDatas, { | cData | hPairs[ cData ] := __ObjSendMsg( o, cData ) } )
+   hObj[ "DATAs" ]   = hPairs
+   hObj[ "METHODs" ] = __objGetMsgList( o, .F. )
+
+return ValToChar( hObj )
+
+//----------------------------------------------------------------//
+
 function ValToChar( u )
 
    local cType := ValType( u )
    local cResult
 
    do case
-      case cType == "C"
+      case cType == "C" .or. cType == "M"
            cResult = u
 
       case cType == "D"
@@ -162,11 +250,20 @@ function ValToChar( u )
       case cType == "A"
            cResult = hb_ValToExp( u )
 
+      case cType == "O"
+           cResult = ObjToChar( u )
+
       case cType == "P"
            cResult = "(P)" 
 
+      case cType == "S"
+           cResult = "(Symbol)" 
+ 
       case cType == "H"
-           cResult = hb_ValToExp( u )
+           cResult = StrTran( StrTran( hb_JsonEncode( u, .T. ), CRLF, "<br>" ), " ", "&nbsp;" )
+           if Left( cResult, 2 ) == "{}"
+              cResult = StrTran( cResult, "{}", "{=>}" )
+           endif   
 
       case cType == "U"
            cResult = "nil"
@@ -246,6 +343,24 @@ return hPairs
 
 //----------------------------------------------------------------//
 
+function AP_GetPairs()
+
+   local aPairs := hb_ATokens( AP_Args(), "&" )
+   local cPair, aPair, hPairs := {=>} 
+
+   for each cPair in aPairs
+      aPair = hb_ATokens( cPair, "=" )
+      if Len( aPair ) == 2 
+         hPairs[ hb_UrlDecode( aPair[ 1 ] ) ] = hb_UrlDecode( aPair[ 2 ] )
+      else
+         hPairs[ hb_UrlDecode( aPair[ 1 ] ) ] = ""
+      endif   
+   next
+   
+return hPairs
+
+//----------------------------------------------------------------//
+
 function ReplaceBlocks( cCode, cStartBlock, cEndBlock, cParams, ... )
 
    local nStart, nEnd, cBlock
@@ -312,6 +427,109 @@ return ""
 
 //----------------------------------------------------------------//
 
+function GetCookies()
+
+   local cCookies := AP_GetEnv( "HTTP_COOKIE" )
+   local aCookies := hb_aTokens( cCookies, "; " )
+   local cCookie, hCookies := {=>}
+   local hHeadersOut := AP_HeadersOut(), cCookieHeader
+
+   if( hb_HHasKey( hHeadersOut, "Set-Cookie" ) )
+      cCookieHeader := hHeadersOut["Set-Cookie"]
+      cCookieHeader := Left( cCookieHeader, At( ';', cCookieHeader )-1 )
+      AAdd( aCookies, cCookieHeader )
+   endif
+   
+   for each cCookie in aCookies
+    hb_HSet( hCookies, SubStr( cCookie, 1, At( "=", cCookie ) - 1 ),;
+         SubStr( cCookie, At( "=", cCookie ) + 1 ) )
+   next   
+   
+ return hCookies
+
+//----------------------------------------------------------------//
+
+function SetCookie( cName, cValue, nSecs, cPath, cDomain, lHttps, lOnlyHttp ) 
+
+   local cCookie := ''
+	
+   // check parameters
+   hb_default( @cName, '' )
+   hb_default( @cValue, '' )
+   hb_default( @nSecs, 3600 )   // Session will expire in Seconds 60 * 60 = 3600
+   hb_default( @cPath, '/' )
+   hb_default( @cDomain	, '' )
+   hb_default( @lHttps, .F. )
+   hb_default( @lOnlyHttp, .F. )	
+	
+   // we build the cookie
+   cCookie += cName + '=' + cValue + ';'
+   cCookie += 'expires=' + CookieExpire( nSecs ) + ';'
+   cCookie += 'path=' + cPath + ';'
+   
+   if ! Empty( cDomain )
+      cCookie += 'domain=' + cDomain + ';'
+   endif
+		
+   // pending logical values for https y OnlyHttp
+
+   // we send the cookie
+   AP_HeadersOutSet( "Set-Cookie", cCookie )
+
+return nil
+
+//----------------------------------------------------------------//
+// CookieExpire( nSecs ) builds the time format for the cookie
+// Using this model: 'Sun, 09 Jun 2019 16:14:00'
+
+function CookieExpire( nSecs )
+
+   local tNow := hb_datetime()	
+   local tExpire   // TimeStampp 
+   local cExpire   // TimeStamp to String
+	
+   hb_default( @nSecs, 60 ) // 60 seconds for this test
+   
+   tExpire = hb_ntot( ( hb_tton( tNow ) * 86400 - hb_utcoffset() + nSecs ) / 86400 )
+
+   cExpire = cdow( tExpire ) + ', ' 
+	     cExpire += AllTrim( Str( Day( hb_TtoD( tExpire ) ) ) ) + ;
+	     ' ' + cMonth( tExpire ) + ' ' + AllTrim( Str( Year( hb_TtoD( tExpire ) ) ) ) + ' ' 
+   cExpire += AllTrim( Str( hb_Hour( tExpire ) ) ) + ':' + AllTrim( Str( hb_Minute( tExpire ) ) ) + ;
+              ':' + AllTrim( Str( hb_Sec( tExpire ) ) )
+
+return cExpire
+
+//----------------------------------------------------------------//
+
+function hb_HtmlEncode( cString )
+   
+   local cChar, cResult := "" 
+
+   for each cChar in cString
+      do case
+      case cChar == "<"
+            cChar = "&lt;"
+
+      case cChar == '>'
+            cChar = "&gt;"     
+            
+      case cChar == "&"
+            cChar = "&amp;"     
+
+      case cChar == '"'
+            cChar = "&quot;"    
+            
+      case cChar == " "
+            cChar = "&nbsp;"               
+      endcase
+      cResult += cChar 
+   next
+    
+return cResult   
+
+//----------------------------------------------------------------//
+
 #pragma BEGINDUMP
 
 #include <hbapi.h>
@@ -320,13 +538,14 @@ return ""
 #include <hbapierr.h>
 
 static void * pRequestRec, * pAPRPuts, * pAPSetContentType;
-static void * pHeadersIn, * pHeadersOut, * pHeadersOutCount, * pHeadersOutSet;
+static void * pHeadersIn, * pHeadersOut, * pHeadersOutSet;
 static void * pHeadersInCount, * pHeadersInKey, * pHeadersInVal;
-static void * pPostPairsCount, * pPostPairsKey, * pPostPairsVal;
+static void * pHeadersOutCount, * pHeadersOutKey, * pHeadersOutVal;
 static void * pAPGetenv, * pAPBody;
 static const char * szFileName, * szArgs, * szMethod, * szUserIP;
 
 #ifdef _MSC_VER
+   #pragma warning(disable:4996)
    #include <windows.h>
 
 HB_FUNC( SHOWCONSOLE )     // to use the debugger locally on Windows
@@ -347,9 +566,8 @@ HB_EXPORT_ATTR int hb_apache( void * _pRequestRec, void * _pAPRPuts,
                const char * _szFileName, const char * _szArgs, const char * _szMethod, const char * _szUserIP,
                void * _pHeadersIn, void * _pHeadersOut, 
                void * _pHeadersInCount, void * _pHeadersInKey, void * _pHeadersInVal,
-               void * _pPostPairsCount, void * _pPostPairsKey, void * _pPostPairsVal,
-               void * _pHeadersOutCount, void * _pHeadersOutSet, void * _pAPSetContentType, void * _pAPGetenv,
-               void * _pAPBody )
+               void * _pHeadersOutCount, void * _pHeadersOutKey, void * _pHeadersOutVal, void * _pHeadersOutSet, 
+               void * _pAPSetContentType, void * _pAPGetenv, void * _pAPBody )
 {
    pRequestRec       = _pRequestRec;
    pAPRPuts          = _pAPRPuts; 
@@ -360,12 +578,11 @@ HB_EXPORT_ATTR int hb_apache( void * _pRequestRec, void * _pAPRPuts,
    pHeadersIn        = _pHeadersIn;
    pHeadersOut       = _pHeadersOut;
    pHeadersInCount   = _pHeadersInCount;
+   pHeadersOutCount  = _pHeadersOutCount;
    pHeadersInKey     = _pHeadersInKey;
    pHeadersInVal     = _pHeadersInVal;
-   pPostPairsCount   = _pPostPairsCount;
-   pPostPairsKey     = _pPostPairsKey;
-   pPostPairsVal     = _pPostPairsVal;
-   pHeadersOutCount  = _pHeadersOutCount;
+   pHeadersOutKey    = _pHeadersOutKey;
+   pHeadersOutVal    = _pHeadersOutVal;
    pHeadersOutSet    = _pHeadersOutSet;
    pAPSetContentType = _pAPSetContentType;
    pAPGetenv         = _pAPGetenv;
@@ -375,7 +592,7 @@ HB_EXPORT_ATTR int hb_apache( void * _pRequestRec, void * _pAPRPuts,
    return hb_vmQuit();
 }   
 
-typedef int ( * AP_RPUTS )( const char * s, void * r );
+typedef int ( * AP_RPUTS )( const char *, void * );
 
 HB_FUNC( AP_RPUTS )
 {
@@ -384,16 +601,39 @@ HB_FUNC( AP_RPUTS )
 
    for( iParam = 1; iParam <= iParams; iParam++ )
    {
-      HB_SIZE nLen;
-      HB_BOOL bFreeReq;
-      char * buffer = hb_itemString( hb_param( iParam, HB_IT_ANY ), &nLen, &bFreeReq );
+      PHB_ITEM pItem = hb_param( iParam, HB_IT_ANY );
 
-      ap_rputs( buffer, pRequestRec );
-      ap_rputs( " ", pRequestRec ); 
+      if( HB_ISOBJECT( iParam ) )
+      {
+         hb_vmPushSymbol( hb_dynsymGetSymbol( "OBJTOCHAR" ) );
+         hb_vmPushNil();
+         hb_vmPush( pItem );
+         hb_vmFunction( 1 );
+         ap_rputs( hb_parc( -1 ), pRequestRec );
+      }
+      else if( HB_ISHASH( iParam ) || HB_ISARRAY( iParam ) )
+      {
+         hb_vmPushSymbol( hb_dynsymGetSymbol( "VALTOCHAR" ) );
+         hb_vmPushNil();
+         hb_vmPush( pItem );
+         hb_vmFunction( 1 );
+         ap_rputs( hb_parc( -1 ), pRequestRec );
+      }
+      else
+      {
+         HB_SIZE nLen;
+         HB_BOOL bFreeReq;
+         char * buffer = hb_itemString( pItem, &nLen, &bFreeReq );
 
-      if( bFreeReq )
-         hb_xfree( buffer );
-   }     
+         ap_rputs( buffer, pRequestRec );
+         ap_rputs( " ", pRequestRec ); 
+
+         if( bFreeReq )
+            hb_xfree( buffer );
+      }      
+   }
+
+   hb_ret();     
 }
 
 HB_FUNC( AP_FILENAME )
@@ -416,89 +656,88 @@ HB_FUNC( AP_USERIP )
    hb_retc( szUserIP );
 }
 
-typedef int ( * HEADERS_IN_COUNT )( void );
+typedef int ( * HEADERS_IN_COUNT )( void * );
 
 HB_FUNC( AP_HEADERSINCOUNT )
 {
    HEADERS_IN_COUNT headers_in_count = ( HEADERS_IN_COUNT ) pHeadersInCount;
    
-   hb_retnl( headers_in_count() );
+   hb_retnl( headers_in_count( pRequestRec ) );
 }   
 
-typedef int ( * HEADERS_OUT_COUNT )( void );
+typedef int ( * HEADERS_OUT_COUNT )( void * );
 
 HB_FUNC( AP_HEADERSOUTCOUNT )
 {
    HEADERS_OUT_COUNT headers_out_count = ( HEADERS_OUT_COUNT ) pHeadersOutCount;
 
-   hb_retnl( headers_out_count() );
+   hb_retnl( headers_out_count( pRequestRec ) );
 }
 
-typedef const char * ( * HEADERS_IN_KEY )( int );
+typedef const char * ( * HEADERS_IN_KEY )( int, void * );
 
 HB_FUNC( AP_HEADERSINKEY )
 {
    HEADERS_IN_KEY headers_in_key = ( HEADERS_IN_KEY ) pHeadersInKey;
    
-   hb_retc( headers_in_key( hb_parnl( 1 ) ) );
+   hb_retc( headers_in_key( hb_parnl( 1 ), pRequestRec ) );
 }   
 
-typedef const char * ( * HEADERS_IN_VAL )( int );
+typedef const char * ( * HEADERS_IN_VAL )( int, void * );
 
 HB_FUNC( AP_HEADERSINVAL )
 {
    HEADERS_IN_VAL headers_in_val = ( HEADERS_IN_VAL ) pHeadersInVal;
    
-   hb_retc( headers_in_val( hb_parnl( 1 ) ) );
+   hb_retc( headers_in_val( hb_parnl( 1 ), pRequestRec ) );
 }   
 
-typedef int ( * POST_PAIRS_COUNT )( void );
+typedef const char * ( * HEADERS_OUT_KEY )( int, void * );
 
-HB_FUNC( AP_POSTPAIRSCOUNT )
+HB_FUNC( AP_HEADERSOUTKEY )
 {
-   POST_PAIRS_COUNT post_pairs_count = ( POST_PAIRS_COUNT ) pPostPairsCount;
+   HEADERS_IN_KEY headers_out_key = ( HEADERS_IN_KEY ) pHeadersOutKey;
+   
+   hb_retc( headers_out_key( hb_parnl( 1 ), pRequestRec ) );
+}   
 
-   hb_retnl( post_pairs_count() );
-}
+typedef const char * ( * HEADERS_OUT_VAL )( int, void * );
 
-typedef void ( * HEADERS_OUT_SET )( const char * szKey, const char * szValue );
+HB_FUNC( AP_HEADERSOUTVAL )
+{
+   HEADERS_IN_VAL headers_out_val = ( HEADERS_OUT_VAL ) pHeadersOutVal;
+   
+   hb_retc( headers_out_val( hb_parnl( 1 ), pRequestRec ) );
+}   
+
+typedef void ( * HEADERS_OUT_SET )( const char * szKey, const char * szValue, void * );
 
 HB_FUNC( AP_HEADERSOUTSET )
 {
    HEADERS_OUT_SET headers_out_set = ( HEADERS_OUT_SET ) pHeadersOutSet;
 
-   headers_out_set( hb_parc( 1 ), hb_parc( 2 ) );
-}
-
-typedef const char * ( * POST_PAIRS_KEY )( int );
-
-HB_FUNC( AP_POSTPAIRSKEY )
-{
-   POST_PAIRS_KEY post_pairs_key = ( POST_PAIRS_KEY ) pPostPairsKey;
-
-   hb_retc( post_pairs_key( hb_parnl( 1 ) ) );
-}
-
-typedef const char * ( * POST_PAIRS_VAL )( int );
-
-HB_FUNC( AP_POSTPAIRSVAL )
-{
-   POST_PAIRS_VAL post_pairs_val = ( POST_PAIRS_VAL ) pPostPairsVal;
-
-   hb_retc( post_pairs_val( hb_parnl( 1 ) ) );
+   headers_out_set( hb_parc( 1 ), hb_parc( 2 ), pRequestRec );
 }
 
 HB_FUNC( PTRTOSTR )
 {
-   const char * * pStrs = ( const char * * ) hb_parnll( 1 );   
-   
+   #ifdef HB_ARCH_32BIT
+      const char * * pStrs = ( const char * * ) hb_parnl( 1 );   
+   #else
+      const char * * pStrs = ( const char * * ) hb_parnll( 1 );   
+   #endif
+
    hb_retc( * ( pStrs + hb_parnl( 2 ) ) );
 }
 
 HB_FUNC( PTRTOUI )
 {
-   unsigned int * pNums = ( unsigned int * ) hb_parnll( 1 );   
-   
+   #ifdef HB_ARCH_32BIT
+      unsigned int * pNums = ( unsigned int * ) hb_parnl( 1 );   
+   #else
+      unsigned int * pNums = ( unsigned int * ) hb_parnll( 1 );   
+   #endif
+
    hb_retnl( * ( pNums + hb_parnl( 2 ) ) );
 }
 
@@ -506,7 +745,7 @@ HB_FUNC( AP_HEADERSIN )
 {
    PHB_ITEM hHeadersIn = hb_hashNew( NULL ); 
    HEADERS_IN_COUNT headers_in_count = ( HEADERS_IN_COUNT ) pHeadersInCount;
-   int iKeys = headers_in_count();
+   int iKeys = headers_in_count( pRequestRec );
 
    if( iKeys > 0 )
    {
@@ -520,8 +759,8 @@ HB_FUNC( AP_HEADERSIN )
    
       for( iKey = 0; iKey < iKeys; iKey++ )
       {
-         hb_itemPutCConst( pKey,   headers_in_key( iKey ) );
-         hb_itemPutCConst( pValue, headers_in_val( iKey ) );
+         hb_itemPutCConst( pKey,   headers_in_key( iKey, pRequestRec ) );
+         hb_itemPutCConst( pValue, headers_in_val( iKey, pRequestRec ) );
          hb_hashAdd( hHeadersIn, pKey, pValue );
       }
       
@@ -532,27 +771,57 @@ HB_FUNC( AP_HEADERSIN )
    hb_itemReturnRelease( hHeadersIn );
 }
 
-typedef void ( * AP_SET_CONTENTTYPE )( const char * szContentType );
+HB_FUNC( AP_HEADERSOUT )
+{
+   PHB_ITEM hHeadersOut = hb_hashNew( NULL ); 
+   HEADERS_OUT_COUNT headers_out_count = ( HEADERS_OUT_COUNT ) pHeadersOutCount;
+   int iKeys = headers_out_count( pRequestRec );
+
+   if( iKeys > 0 )
+   {
+      int iKey;
+      PHB_ITEM pKey = hb_itemNew( NULL );
+      PHB_ITEM pValue = hb_itemNew( NULL );   
+      HEADERS_OUT_KEY headers_out_key = ( HEADERS_OUT_KEY ) pHeadersOutKey;
+      HEADERS_OUT_VAL headers_out_val = ( HEADERS_OUT_VAL ) pHeadersOutVal;
+
+      hb_hashPreallocate( hHeadersOut, iKeys );
+   
+      for( iKey = 0; iKey < iKeys; iKey++ )
+      {
+         hb_itemPutCConst( pKey,   headers_out_key( iKey, pRequestRec ) );
+         hb_itemPutCConst( pValue, headers_out_val( iKey, pRequestRec ) );
+         hb_hashAdd( hHeadersOut, pKey, pValue );
+      }
+      
+      hb_itemRelease( pKey );
+      hb_itemRelease( pValue );
+   }  
+   
+   hb_itemReturnRelease( hHeadersOut );
+}
+
+typedef void ( * AP_SET_CONTENTTYPE )( const char * szContentType, void * );
 
 HB_FUNC( AP_SETCONTENTTYPE )
 {
    AP_SET_CONTENTTYPE ap_set_contenttype = ( AP_SET_CONTENTTYPE ) pAPSetContentType;
 
-   ap_set_contenttype( hb_parc( 1 ) );
+   ap_set_contenttype( hb_parc( 1 ), pRequestRec );
 }
 
-typedef const char * ( * AP_GET_ENV )( const char * );
+typedef const char * ( * AP_GET_ENV )( const char *, void * );
 
 HB_FUNC( AP_GETENV )
 {
    AP_GET_ENV ap_getenv = ( AP_GET_ENV ) pAPGetenv;
    
-   hb_retc( ap_getenv( hb_parc( 1 ) ) );
+   hb_retc( ap_getenv( hb_parc( 1 ), pRequestRec ) );
 }   
 
 static char * szBody = NULL;
 
-typedef const char * ( * AP_BODY )( void );
+typedef const char * ( * AP_BODY )( void * );
 
 HB_FUNC( AP_BODY )
 {
@@ -563,7 +832,7 @@ HB_FUNC( AP_BODY )
       hb_retc( szBody );
    else
    {
-      _szBody = ( char * ) ap_body();
+      _szBody = ( char * ) ap_body( pRequestRec );
       szBody = ( char * ) hb_xgrab( strlen( _szBody ) + 1 );
       strcpy( szBody, _szBody );
       hb_retc( _szBody );

@@ -1,3 +1,80 @@
+Apple provides an installed apache by default, that serves pages at:
+
+```
+/Library/WebServer/Documents
+```
+
+Download mod_harbour files:
+```
+git clone https://github.com/fivetechsoft/mod_harbour
+```
+
+Create the required symbolic links:
+```
+cd /Library/WebServer/Documents
+sudo ln -sf /Users/$USER/mod_harbour/hbmk2/osx/libharbour.so.3.2.0 libharbour.3.2.0.dylib
+sudo ln -sf /Users/$USER/mod_harbour/samples modharbour_samples
+```
+
+Edit **httpd.conf** at /private/etc/apache2 (or at /usr/local/etc/httpd/httpd.conf) and add these lines:
+```
+LoadModule harbour_module /usr/local/httpd/modules/mod_harbour.so
+
+<FilesMatch "\.(prg|hrb)$">
+    SetHandler harbour
+</FilesMatch>
+```
+and add Indexes here:
+```
+Options Indexes FollowSymLinks Multiviews
+```
+
+Restart apache:
+```
+sudo apachectl start
+```
+
+Now just browse to **localhost/modharbour_samples/** from from browser and click on any PRG file
+
+In case that you get errors please review the log files at:
+```
+/var/log/apache2
+```
+
+<hr>
+
+In case that **you want to rebuild mod_harbour yourself**, then you need to install brew as the default installed apache does not provides all the required files (headers and libraries) to build it:
+
+```
+/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
+brew install httpd
+```
+<hr>
+
+0. Install curl and pcre:
+
+```
+brew install curl
+brew install pcre
+```
+
+1. Download Harbour and build it:
+
+```
+git clone https://github.com/harbour/core harbour
+export HB_WITH_CURL=/usr/local/Cellar/curl/7.69.1/include/
+export HB_BUILD_CONTRIBS=""
+make
+```
+
+2. Install Apache so we get the missing required headers and libraries:
+
+```
+brew install httpd
+```
+
+
 **1.** sudo apachectl start
 
 **2.** From the browser go to localhost and check that Apache is running

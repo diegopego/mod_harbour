@@ -1,8 +1,12 @@
-// {% hb_SetEnv( "HB_INCLUDE", If( "Windows" $ OS(), "c:", If( "Darwin" $ OS(), "/Users/anto", "/home/anto" ) ) + "/harbour/include" ) %}
-
-#include "hbclass.ch"
-#include "set.ch"
-#include "hbdyn.ch"
+#ifdef __PLATFORM__WINDOWS
+   #include "c:\harbour\include\hbclass.ch"
+   #include "c:\harbour\include\set.ch"
+   #include "c:\harbour\include\hbdyn.ch"
+#else
+   #include "/home/user/harbour/include/hbclass.ch"
+   #include "/home/user/harbour/include/set.ch"
+   #include "/home/user/harbour/include/hbdyn.ch"
+#endif
 
 #define HB_VERSION_BITWIDTH  17
 #define NULL  0  
@@ -460,8 +464,8 @@ function hb_SysMySQL()
          cLibName = "/usr/local/Cellar/mysql/8.0.16/lib/libmysqlclient.dylib"
       else   
          cLibName = If( hb_version( HB_VERSION_BITWIDTH ) == 64,;
-                        "/usr/lib/x86_64-linux-gnu/libmysqlclient.so",; // libmysqlclient.so.20 for mariaDB
-                        "/usr/lib/x86-linux-gnu/libmysqlclient.so" )
+                        "/usr/lib/x86_64-linux-gnu/libmariadbclient.so",; // libmysqlclient.so.20 for mariaDB
+                        "/usr/lib/x86-linux-gnu/libmariadbclient.so" )
       endif                  
    else
       cLibName = If( hb_version( HB_VERSION_BITWIDTH ) == 64,;

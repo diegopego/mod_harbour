@@ -13,7 +13,7 @@ return nil
 function Controller( cRequest )
 
    cContent = If( Empty( cRequest ), "home",;
-                  If( cRequest $ "wishlist,login,cart,checkout", cRequest, "home" ) )
+              If( cRequest $ "wishlist,login,cart,checkout", cRequest, "home" ) )
 
    do case   
       case AP_Method() == "GET"
@@ -128,7 +128,7 @@ return If( cContent == cItem, "class='active'", "" )
 
 function GetColor()
 
-return "#FF7F50" // #19caaf
+return "#FF7F51" // #19caaf
 
 //----------------------------------------------------------------------------//
 

@@ -7,7 +7,13 @@ mod_harbour is a module extension for Apache that supports Harbour PRGs (and HRB
 
 Please visit the [wiki](https://github.com/FiveTechSoft/mod_harbour/wiki) to learn how to install and use it
 
-All examples provided in the samples folder can be tested online: https://harbour.fourtech.es/modharbour_samples/
+All examples provided in the samples folder can be tested online: https://www.modharbour.org/modharbour_samples/
+
+***
+
+mod_harbour users forums:
+
+http://forums.fivetechsupport.com/viewforum.php?f=45&start=0
 
 ***
 
