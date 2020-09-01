@@ -31,7 +31,9 @@ Go to c:\inetpub\wwwroot\
 Create this symlink: (run cmd as administrator)
 
 mklink /j modharbour_samples c:\mod_harbour\samples
+
 enable Directories features from IIS panel
+
 go to localhost/modharbour_samples
 
 or
@@ -42,6 +44,12 @@ Create a test.html
 **4. From the web browser go to localhost/hello.prg**
 
 Also go to localhost/test.html
+
+***
+
+In case that you experience any errors, please review the IIS log files at:
+
+%SystemDrive%\inetpub\logs\LogFiles by default.
 
 ***
 

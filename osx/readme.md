@@ -2,6 +2,10 @@ Apple provides an installed apache by default, that serves pages at:
 
 ```
 /Library/WebServer/Documents
+
+if you have used brew to install httpd then the pages are located at:
+
+/usr/local/var/www
 ```
 
 Download mod_harbour files:
@@ -11,8 +15,10 @@ git clone https://github.com/fivetechsoft/mod_harbour
 
 Create the required symbolic links:
 ```
+cd /usr/local/httpd/modules
+sudo ln -sf /Users/$USER/mod_harbour/osx/mod_harbour.so mod_harbour.so
 cd /Library/WebServer/Documents
-sudo ln -sf /Users/$USER/mod_harbour/hbmk2/osx/libharbour.so.3.2.0 libharbour.3.2.0.dylib
+sudo ln -sf /Users/$USER/mod_harbour/osx/libharbour.3.2.0.dylib libharbour.3.2.0.dylib
 sudo ln -sf /Users/$USER/mod_harbour/samples modharbour_samples
 ```
 
@@ -63,7 +69,8 @@ brew install pcre
 
 ```
 git clone https://github.com/harbour/core harbour
-export HB_WITH_CURL=/usr/local/Cellar/curl/7.69.1/include/
+export HB_WITH_CURL=/usr/local/Cellar/curl/7.70.0/include/
+export HB_WITH_OPENSSL=/usr/local/Cellar/openssl@1.1/1.1.1g
 export HB_BUILD_CONTRIBS=""
 make
 ```
@@ -192,24 +199,6 @@ ln -sf /Users/anto/mod_harbour/samples modharbour_samples
 sudo apachectl restart
 
 <hr>
-
-/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-
-brew install httpd
-
-mkdir $HOME/temp
-
-cd $HOME/temp
-
-apxs -g -n harbour
-
-cd $HOME
-
-git clone https://github.com/FiveTechSoft/mod_harbour
-
-cp $HOME/mod_harbour/mod_harbour.c $HOME/temp/harbour
-
-***
 
 [![](https://bitbucket.org/fivetech/screenshots/downloads/harbour.jpg)](https://harbour.github.io "The Harbour Project")
 <a href="https://httpd.apache.org/" alt="The Apache HTTP Server Project"><img width="150" height="150" src="http://www.apache.org/img/support-apache.jpg"></a>
