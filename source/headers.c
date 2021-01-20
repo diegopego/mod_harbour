@@ -33,8 +33,8 @@ HB_FUNC( AP_HEADERSIN )
       
       hb_itemRelease( pKey );
       hb_itemRelease( pValue );
-   }  
-   
+   }
+
    hb_itemReturnRelease( hHeadersIn );
 }
 

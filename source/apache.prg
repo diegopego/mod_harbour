@@ -28,6 +28,8 @@
 #include "../../harbour/contrib/hbziparc/hbziparc.hbx"
 #define __HBEXTERN__HBSSL__REQUEST
 #include "../../harbour/contrib/hbssl/hbssl.hbx"
+#define __HBEXTERN__HBZEBRA__REQUEST
+#include "../../harbour/contrib/hbzebra/hbzebra.hbx"
 
 #ifdef __PLATFORM__WINDOWS
    #define __HBEXTERN__HBWIN__REQUEST
@@ -68,7 +70,7 @@ function Main()
          hb_threadQuitRequest( pThread )
 	      ErrorLevel( 408 ) // request timeout
       endif    
-      InKey( 0.1 )
+      // InKey( 0.1 )
    else
       ErrorLevel( 404 ) // not found
    endif   
