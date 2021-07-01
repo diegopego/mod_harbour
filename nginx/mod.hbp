@@ -1,0 +1,14 @@
+-hbdyn
+-omod_harbour.so
+
+-cflag=-O2 -W4 -WX -nologo -MT -Zi -DFD_SETSIZE=1024 -DNO_SYS_TYPES_H 
+ngx_mod_harbour.c
+ngx_mod_harbour_modules.c
+ngx_modules.c 
+-Llib/win32
+-llibcrypto
+-llibssl
+-lpcre
+-lzlib
+-ladvapi32
+-lws2_32

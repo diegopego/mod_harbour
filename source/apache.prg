@@ -9,6 +9,8 @@
 #include "hbhrb.ch"
 
 #xcommand ? [<explist,...>] => AP_RPuts( '<br>' [,<explist>] )
+#xcommand TRY  => BEGIN SEQUENCE WITH {| oErr | Break( oErr ) }
+#xcommand CATCH [<!oErr!>] => RECOVER [USING <oErr>] <-oErr->
 
 #define CRLF hb_OsNewLine()
 
@@ -30,6 +32,8 @@
 #include "../../harbour/contrib/hbssl/hbssl.hbx"
 #define __HBEXTERN__HBZEBRA__REQUEST
 #include "../../harbour/contrib/hbzebra/hbzebra.hbx"
+#define __HBEXTERN__HBTIP__REQUEST
+#include "../../harbour/contrib/hbtip/hbtip.hbx"
 
 #ifdef __PLATFORM__WINDOWS
    #define __HBEXTERN__HBWIN__REQUEST
@@ -41,7 +45,7 @@
    #include "../../harbour/contrib/rddads/rddads.hbx"
 #endif
 
-extern MWRITE, MREAD, SHOWCONSOLE, AP_ARGS, AP_BODY, AP_FILENAME
+extern MWRITE, MREAD, SHOWCONSOLE, AP_ARGS, AP_BODY, AP_ENTRY, AP_FILENAME
 extern AP_GETENV, AP_HEADERSINCOUNT, AP_HEADERSINKEY, AP_HEADERSINVAL, AP_HEADERSIN
 extern AP_METHOD, AP_USERIP, AP_HEADERSOUTCOUNT, AP_HEADERSOUTKEY, AP_HEADERSOUTVAL
 extern AP_HEADERSOUTSET, AP_HEADERSOUT, AP_RPUTS, AP_RWRITE, AP_SETCONTENTTYPE
@@ -135,11 +139,23 @@ function ObjToChar( o )
    hObj[ "CLASS" ] = o:ClassName()
    hObj[ "FROM" ]  = aParents 
 
-   AEval( aDatas, { | cData | hPairs[ cData ] := __ObjSendMsg( o, cData ) } )
+   AEval( aDatas, { | cData | ObjSetData( o, cData, hPairs ) } )
    hObj[ "DATAs" ]   = hPairs
    hObj[ "METHODs" ] = __objGetMsgList( o, .F. )
 
 return ValToChar( hObj )
+
+//----------------------------------------------------------------//
+
+function ObjSetData( o, cData, hPairs )
+
+   TRY
+      hPairs[ cData ] := __ObjSendMsg( o, cData )
+   CATCH      
+      hPairs[ cData ] := "** protected **"
+   END
+   
+return nil 
 
 //----------------------------------------------------------------//
 
@@ -215,29 +231,5 @@ function hb_HtmlEncode( cString )
    next
     
 return cResult   
-
-//----------------------------------------------------------------//
-
-#pragma BEGINDUMP
-
-#include <hbapi.h>
-#include <hbvm.h>
-
-static void * pRequestRec;
-
-HB_EXPORT_ATTR int hb_apache( void * _pRequestRec )
-{
-   pRequestRec = _pRequestRec;
- 
-   hb_vmInit( HB_TRUE );
-   return hb_vmQuit();
-}   
-
-void * GetRequestRec( void )
-{
-   return pRequestRec;
-}
-
-#pragma ENDDUMP
 
 //----------------------------------------------------------------//
